@@ -23,6 +23,8 @@ WORKDIR /workspace
 COPY requirements.txt /tmp/requirements.txt
 
 # install python dependencies from requirements.txt
+# upgrade pip and setuptools first to fix compatibility with amici
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
 
 # install jupyter (optional, can be started manually when needed)
