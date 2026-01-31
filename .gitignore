@@ -10,3 +10,7 @@ SPARCED/*xlsx
 cleanH
 work/
 ToDo*
+Demo/SPARCED/build/*
+Demo/SPARCED/SPARCED.egg-info/*
+Demo/SPARCED/SPARCED
+docs/*.md
