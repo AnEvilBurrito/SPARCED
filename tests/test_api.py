@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi.testclient import TestClient
-import api.app
+from api.app import app, simulator as global_simulator
 from api.run_model import create_simulator
 
 
@@ -21,6 +21,8 @@ from api.run_model import create_simulator
 def client():
     """Create a test client for the FastAPI app."""
     # Manually initialize simulator for tests (TestClient doesn't trigger startup)
+    # The simulator is a module-level variable in api.app
+    import api.app
     if api.app.simulator is None:
         api.app.simulator = create_simulator()
     return TestClient(app)
@@ -121,7 +123,7 @@ class TestSimulateEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert "time" in data
-        assert len(data["time"]) > 0
+        assert len(data["time"]) > 2
 
     def test_simulate_with_multiple_ligand_overrides(self, client):
         """Test simulation with multiple ligand overrides."""
@@ -130,9 +132,9 @@ class TestSimulateEndpoint:
             "stop": 5.0,
             "step": 0.5,
             "state_values": {
-                "EGF": 50.0,
+                "E": 50.0,
                 "HGF": 75.0,
-                "PDGF": 200.0
+                "P": 200.0
             }
         })
         assert response.status_code == 200
@@ -140,13 +142,13 @@ class TestSimulateEndpoint:
         assert "time" in data
 
     def test_simulate_with_parameter_override(self, client):
-        """Test simulation with ratelaw parameter override."""
+        """Test simulation with AMICI fixed parameter override."""
         response = client.post("/simulate", json={
             "start": 0.0,
             "stop": 5.0,
             "step": 0.5,
             "parameter_values": {
-                "kTL1_1": 150.0  # Override transcription rate
+                "k3_1": 150.0  # Override transcription rate (was kTL1_1)
             }
         })
         assert response.status_code == 200
@@ -163,7 +165,7 @@ class TestSimulateEndpoint:
                 "HGF": 50.0
             },
             "parameter_values": {
-                "kTL1_1": 150.0
+                "k3_1": 150.0  # Override transcription rate (was kTL1_1)
             }
         })
         assert response.status_code == 200
@@ -213,23 +215,25 @@ class TestErrorHandling:
         })
         assert response.status_code == 400
         data = response.json()
-        assert "error" in data
-        assert "Unknown species" in data["error"]
+        assert "detail" in data
+        assert "error" in data["detail"]
+        assert "Unknown species" in data["detail"]["error"]
 
     def test_unknown_ratelaw(self, client):
-        """Test error handling for unknown ratelaw parameter."""
+        """Test error handling for unknown AMICI parameter."""
         response = client.post("/simulate", json={
             "start": 0.0,
             "stop": 5.0,
             "step": 0.5,
             "parameter_values": {
-                "kNonExistent_1": 100.0  # Unknown ratelaw
+                "k99999_1": 100.0  # Unknown AMICI parameter
             }
         })
         assert response.status_code == 400
         data = response.json()
-        assert "error" in data
-        assert "Unknown ratelaw" in data["error"]
+        assert "detail" in data
+        assert "error" in data["detail"]
+        assert "Unknown parameter" in data["detail"]["error"]
 
     def test_invalid_parameter_format(self, client):
         """Test error handling for invalid parameter name format."""
@@ -238,12 +242,14 @@ class TestErrorHandling:
             "stop": 5.0,
             "step": 0.5,
             "parameter_values": {
-                "InvalidFormat": 100.0  # Missing underscore and offset
+                "InvalidFormat": 100.0  # Not in AMICI model
             }
         })
         assert response.status_code == 400
         data = response.json()
-        assert "error" in data
+        assert "detail" in data
+        assert "error" in data["detail"]
+        assert "Unknown parameter" in data["detail"]["error"]
 
     def test_missing_required_fields(self, client):
         """Test error handling for missing required fields."""

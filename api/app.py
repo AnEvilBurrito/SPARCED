@@ -126,7 +126,7 @@ async def simulate(req: SimulationRequest):
         "stop": 720.0,
         "step": 0.5,
         "state_values": {"HGF": 50.0},
-        "parameter_values": {"kTL1_1": 150.0}
+        "parameter_values": {"k3_1": 150.0}
     }
     ```
 
@@ -153,13 +153,14 @@ async def simulate(req: SimulationRequest):
                         detail={"error": f"Unknown species: '{species_name}'"}
                     )
 
-        # Validate parameter_values parameter names
+        # Validate parameter_values parameter names against AMICI model
         if req.parameter_values:
             for param_name in req.parameter_values.keys():
-                if param_name not in simulator.parameter_name_to_location:
+                if param_name not in simulator.available_parameters:
+                    available = list(simulator.available_parameters)[:5]
                     raise HTTPException(
                         status_code=400,
-                        detail={"error": f"Unknown parameter: '{param_name}'. Parameter not found in any ratelaw equation."}
+                        detail={"error": f"Unknown parameter: '{param_name}'. Available parameters (sample): {available}"}
                     )
 
         # Run simulation

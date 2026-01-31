@@ -66,7 +66,7 @@ class SPARCEDSimulator:
         self.species_file = self.base_dir / "Species.txt"
         self.omics_data_file = self.base_dir / "OmicsData.txt"
         self.gene_reg_file = self.base_dir / "GeneReg.txt"
-        self.ratelaws_file = self.base_dir / "Ratelaws.txt"
+        self.paramsall_file = self.base_dir / "ParamsAll.txt"
         self.sbml_path = self.base_dir / self.sbml_file
 
         # Load AMICI model
@@ -74,7 +74,7 @@ class SPARCEDSimulator:
 
         # Cache species names and indices for override mapping
         self._load_species_mapping()
-        self._load_ratelaw_mapping()
+        self._load_parameter_mapping()
 
     def _load_model(self):
         """Load the AMICI model and create solver instance."""
@@ -99,37 +99,14 @@ class SPARCEDSimulator:
         species_df = pd.read_csv(self.species_file, sep="\t", header=0, index_col=0, encoding='latin-1')
         self.species_name_to_index = {name: idx for idx, name in enumerate(species_df.index)}
 
-    def _load_ratelaw_mapping(self):
-        """Load ratelaw and parameter mappings from Ratelaws.txt.
+    def _load_parameter_mapping(self):
+        """Load available parameter names from AMICI model.
 
-        Creates two mappings:
-        1. ratelaw_name -> row index (for validation)
-        2. parameter_name -> (row_index, column_offset) (for applying overrides)
+        Stores the set of available fixed parameter names for validation.
+        Users must use AMICI's parameter names (e.g., k1_1, k3_1, etc.)
+        as found in ParamsAll.txt or via model.getFixedParameterNames().
         """
-        with open(self.ratelaws_file, 'r') as f:
-            lines = f.readlines()
-
-        self.ratelaw_name_to_index = {}  # reaction name -> row index
-        self.parameter_name_to_location = {}  # parameter name -> (row_index, column_offset)
-
-        for idx, line in enumerate(lines[1:], start=1):  # Skip header
-            parts = line.strip().split('\t')
-            if len(parts) < 3:
-                continue
-            ratelaw_name = parts[0]
-            self.ratelaw_name_to_index[ratelaw_name] = idx
-
-            # Parse parameters from the ratelaw equation (column 2)
-            ratelaw_eq = parts[2]
-            # Find all parameters like kTL1_1, kbR_2, etc.
-            import re
-            params = re.findall(r'(\w+_\d+)', ratelaw_eq)
-
-            # Map each parameter name to its location (row and column offset)
-            for param_idx, param in enumerate(params):
-                if param not in self.parameter_name_to_location:
-                    # Parameters might appear in multiple ratelaws, store first occurrence
-                    self.parameter_name_to_location[param] = (idx, 2 + param_idx)
+        self.available_parameters = set(self.model.getFixedParameterNames())
 
     def _apply_overrides(
         self,
@@ -137,22 +114,20 @@ class SPARCEDSimulator:
         state_values: Optional[Dict[str, float]] = None,
         parameter_values: Optional[Dict[str, float]] = None
     ):
-        """Apply state and parameter overrides to temporary copies of input files.
+        """Apply state and parameter overrides.
 
         Args:
             temp_dir: Temporary directory path
             state_values: Species name -> initial concentration (nM) overrides
-            parameter_values: Parameter name -> value overrides
+            parameter_values: AMICI parameter name -> value overrides (e.g., k1_1, k3_1, etc.)
         """
         # Copy input files to temp directory
         temp_species_file = temp_dir / "Species.txt"
-        temp_ratelaws_file = temp_dir / "Ratelaws.txt"
         temp_omics_file = temp_dir / "OmicsData.txt"
         temp_gene_reg_file = temp_dir / "GeneReg.txt"
         temp_sbml_file = temp_dir / self.sbml_file
 
         shutil.copy2(self.species_file, temp_species_file)
-        shutil.copy2(self.ratelaws_file, temp_ratelaws_file)
         shutil.copy2(self.omics_data_file, temp_omics_file)
         shutil.copy2(self.gene_reg_file, temp_gene_reg_file)
         shutil.copy2(self.sbml_path, temp_sbml_file)
@@ -167,36 +142,29 @@ class SPARCEDSimulator:
                     raise ValueError(f"Species '{species_name}' not found in Species.txt")
             species_df.to_csv(temp_species_file, sep="\t")
 
-        # Apply parameter_values to Ratelaws.txt
+        # Apply parameter_values directly to AMICI model using setFixedParameterByName()
         if parameter_values:
-            with open(temp_ratelaws_file, 'r') as f:
-                lines = f.readlines()
+            # Get current parameter values to restore later
+            original_values = {}
+            for param_name in parameter_values.keys():
+                if param_name not in self.available_parameters:
+                    available = list(self.available_parameters)[:10]
+                    raise ValueError(
+                        f"Parameter '{param_name}' not found in AMICI model. "
+                        f"Available parameters (sample): {available}"
+                    )
+                original_values[param_name] = self.model.getFixedParameterByName(param_name)
 
-            modified_lines = lines.copy()
-
+            # Apply parameter overrides
             for param_name, param_value in parameter_values.items():
-                # Look up parameter location using the pre-built mapping
-                if param_name not in self.parameter_name_to_location:
-                    raise ValueError(f"Parameter '{param_name}' not found in any ratelaw equation")
-
-                row_idx, col_idx = self.parameter_name_to_location[param_name]
-                parts = modified_lines[row_idx].strip().split('\t')
-
-                if col_idx >= len(parts):
-                    raise ValueError(f"Parameter column index {col_idx} out of range for parameter '{param_name}'")
-
-                parts[col_idx] = str(float(param_value))
-                modified_lines[row_idx] = '\t'.join(parts) + '\n'
-
-            with open(temp_ratelaws_file, 'w') as f:
-                f.writelines(modified_lines)
+                self.model.setFixedParameterByName(param_name, float(param_value))
 
         return {
             'species_file': str(temp_species_file),
-            'ratelaws_file': str(temp_ratelaws_file),
             'omics_data_file': str(temp_omics_file),
             'gene_reg_file': str(temp_gene_reg_file),
-            'sbml_file': str(temp_sbml_file.name)
+            'sbml_file': str(temp_sbml_file.name),
+            'original_values': original_values if parameter_values else {}
         }
 
     def simulate(
@@ -228,12 +196,15 @@ class SPARCEDSimulator:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
 
-            # Apply overrides to temporary files
+            # Apply overrides (parameter_values are applied directly to model)
             file_paths = self._apply_overrides(
                 temp_path,
                 state_values=state_values,
                 parameter_values=parameter_values
             )
+
+            # Store original parameter values for restoration
+            original_values = file_paths.get('original_values', {})
 
             # Load species initializations from temporary Species.txt
             species_sheet = np.array([
@@ -252,7 +223,7 @@ class SPARCEDSimulator:
             species_initializations[155:162] = self.DEFAULT_LIGANDS
             if state_values:
                 # Apply ligand overrides if specified
-                ligand_names = ['EGF', 'Her', 'HGF', 'PDGF', 'FGF', 'IGF', 'INS']
+                ligand_names = ['E', 'H', 'HGF', 'P', 'F', 'I', 'INS']
                 for i, ligand in enumerate(ligand_names):
                     if ligand in state_values:
                         species_initializations[155 + i] = state_values[ligand]
@@ -288,6 +259,10 @@ class SPARCEDSimulator:
                 sys.path.clear()
                 sys.path.extend(original_path)
 
+                # Restore original parameter values
+                for param_name, original_value in original_values.items():
+                    self.model.setFixedParameterByName(param_name, original_value)
+
         # Convert results to DataFrame
         # tout_all is in seconds, convert to minutes for output
         time_minutes = tout_all / 60.0
@@ -302,7 +277,7 @@ class SPARCEDSimulator:
 def create_simulator(
     model_dir: str = "Demo/SPARCED",
     sbml_file: str = "SPARCED.xml",
-    base_dir: str = None,
+    base_dir: Optional[str] = None,
     deterministic: bool = True
 ) -> SPARCEDSimulator:
     """Create a SPARCED simulator instance.
