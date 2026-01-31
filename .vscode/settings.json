@@ -1,0 +1,37 @@
+{
+  // Python interpreter - use venv inside workspace
+  "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}",
+    "${workspaceFolder}/bin",
+    "${workspaceFolder}/bin/modules"
+  ],
+
+  // Linting
+  "python.linting.enabled": true,
+  "python.linting.flake8Enabled": true,
+  "python.linting.pylintEnabled": true,
+  "python.linting.mypyEnabled": false,
+
+  // Formatting
+  "python.formatting.provider": "black",
+  "editor.formatOnSave": true,
+  "[python]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+
+  // File exclusions
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/.pytest_cache": true,
+    "**/.ipynb_checkpoints": true
+  },
+
+  // Jupyter settings
+  "jupyter.askForKernelRestart": false,
+  "jupyter.jupyterServerType": "local"
+}
