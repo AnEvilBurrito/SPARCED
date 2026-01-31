@@ -25,6 +25,8 @@ COPY requirements.txt /tmp/requirements.txt
 # install python dependencies from requirements.txt
 # upgrade pip and setuptools first to fix compatibility with amici
 RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+# install numpy first so amici compiles against the correct version
+RUN pip3 install --no-cache-dir numpy==1.22.0
 RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
 
 # install jupyter (optional, can be started manually when needed)
