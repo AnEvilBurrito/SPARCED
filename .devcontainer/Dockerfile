@@ -2,7 +2,7 @@
 # Based on docker/jupyter.Dockerfile but modified for VS Code devcontainer usage
 # This provides a full development environment rather than just a Jupyter notebook server
 
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 
 # install system dependencies
 RUN apt-get update -qq && apt-get install -qq -y \
