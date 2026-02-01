@@ -108,6 +108,28 @@ class SPARCEDSimulator:
         """
         self.available_parameters = set(self.model.getFixedParameterNames())
 
+    def get_state_defaults(self) -> Dict[str, float]:
+        """Get default initial values for all states (species).
+
+        Uses AMICI's native getStateIds() and getInitialStates() methods.
+
+        Returns:
+            Dictionary mapping state name to default initial concentration (nM)
+        """
+        initial_states = self.model.getInitialStates()
+        return dict(zip(self.state_ids, initial_states))
+
+    def get_parameter_defaults(self) -> Dict[str, float]:
+        """Get default values for all fixed parameters.
+
+        Uses AMICI's native getFixedParameterNames() and getFixedParameterByName() methods.
+
+        Returns:
+            Dictionary mapping parameter name (e.g., k1_1, k3_1) to default value
+        """
+        param_names = self.model.getFixedParameterNames()
+        return {name: self.model.getFixedParameterByName(name) for name in param_names}
+
     def _apply_overrides(
         self,
         temp_dir: Path,

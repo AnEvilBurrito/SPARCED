@@ -81,6 +81,8 @@ async def root():
         "version": "0.1.0",
         "endpoints": {
             "POST /simulate": "Run a simulation",
+            "GET /states": "Get default state values",
+            "GET /parameters": "Get default parameter values",
             "GET /health": "Health check",
             "GET /": "API information"
         }
@@ -97,6 +99,63 @@ async def health():
         "model_dir": str(simulator.model_dir),
         "deterministic": simulator.deterministic
     }
+
+
+@app.get(
+    "/states",
+    tags=["Model Info"],
+    responses={
+        200: {"description": "Returns default state values"},
+        503: {"model": ErrorResponse, "description": "Simulator not initialized"}
+    }
+)
+async def get_states():
+    """Get default initial values for all states (species).
+
+    Returns a dictionary mapping state names to their default initial
+    concentrations in nM. Uses AMICI's native getInitialStates() method.
+
+    Example response:
+    ```json
+    {
+        "Ribosome": 1900.0,
+        "ppERK": 11.1,
+        "ppAKT": 0.389,
+        ...
+    }
+    ```
+    """
+    if simulator is None:
+        raise HTTPException(status_code=503, detail="Simulator not initialized")
+    return simulator.get_state_defaults()
+
+
+@app.get(
+    "/parameters",
+    tags=["Model Info"],
+    responses={
+        200: {"description": "Returns default parameter values"},
+        503: {"model": ErrorResponse, "description": "Simulator not initialized"}
+    }
+)
+async def get_parameters():
+    """Get default values for all fixed parameters.
+
+    Returns a dictionary mapping parameter names to their default values.
+    Uses AMICI's native getFixedParameterNames() and getFixedParameterByName() methods.
+
+    Example response:
+    ```json
+    {
+        "k1_1": 0.0042005,
+        "k3_1": 140.7475,
+        ...
+    }
+    ```
+    """
+    if simulator is None:
+        raise HTTPException(status_code=503, detail="Simulator not initialized")
+    return simulator.get_parameter_defaults()
 
 
 @app.post(

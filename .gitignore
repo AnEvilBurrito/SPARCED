@@ -14,3 +14,6 @@ Demo/SPARCED/build/*
 Demo/SPARCED/SPARCED.egg-info/*
 Demo/SPARCED/SPARCED
 docs/*.md
+
+# Generated plots from sensitivity analysis
+examples/*.png

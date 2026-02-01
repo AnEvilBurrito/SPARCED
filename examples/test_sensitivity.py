@@ -128,7 +128,7 @@ def add_gaussian_noise(values, noise_fraction=0.1, rng=None):
         rng: numpy random generator
 
     Returns:
-        Dict with noisy values (clipped to be non-negative)
+        Dict with noisy values (clipped to be non-negative and at least 10% of original)
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -137,7 +137,8 @@ def add_gaussian_noise(values, noise_fraction=0.1, rng=None):
     for name, value in values.items():
         std = abs(value) * noise_fraction
         noise = rng.normal(0, std)
-        noisy_value = max(0, value + noise)  # Ensure non-negative
+        # Ensure non-negative and at least 10% of original value to prevent numerical instability
+        noisy_value = max(0.1 * value, value + noise)
         noisy_values[name] = noisy_value
 
     return noisy_values
@@ -189,21 +190,29 @@ def run_state_sensitivity_analysis(simulator, n_simulations=10, noise_fraction=0
 
     all_time_courses = []
     final_values = {name: [] for name in KEY_SPECIES.keys()}
+    failed = 0
 
     for i in range(n_simulations):
         noisy_states = add_gaussian_noise(default_states, noise_fraction, rng)
-        results_df = run_single_simulation(
-            simulator,
-            state_values=noisy_states,
-            stop=simulation_duration_min
-        )
-        key_data = extract_key_species(results_df, simulator.state_ids)
-        all_time_courses.append(key_data)
-        for name in KEY_SPECIES.keys():
-            final_values[name].append(key_data[name][-1])
+        try:
+            results_df = run_single_simulation(
+                simulator,
+                state_values=noisy_states,
+                stop=simulation_duration_min
+            )
+            key_data = extract_key_species(results_df, simulator.state_ids)
+            all_time_courses.append(key_data)
+            for name in KEY_SPECIES.keys():
+                final_values[name].append(key_data[name][-1])
+        except (RuntimeError, ValueError) as e:
+            failed += 1
+            print(f"  [Warning] Simulation {i+1} failed: {e}")
 
         if (i + 1) % max(1, n_simulations // 5) == 0:
-            print(f"  Completed {i + 1}/{n_simulations} simulations...")
+            print(f"  Completed {i + 1 - failed}/{n_simulations} simulations (failed: {failed})...")
+
+    if failed > 0:
+        print(f"  Total failures: {failed}/{n_simulations}")
 
     return {
         'time_courses': all_time_courses,
@@ -236,21 +245,29 @@ def run_parameter_sensitivity_analysis(simulator, n_simulations=10, noise_fracti
 
     all_time_courses = []
     final_values = {name: [] for name in KEY_SPECIES.keys()}
+    failed = 0
 
     for i in range(n_simulations):
         noisy_params = add_gaussian_noise(test_params, noise_fraction, rng)
-        results_df = run_single_simulation(
-            simulator,
-            parameter_values=noisy_params,
-            stop=simulation_duration_min
-        )
-        key_data = extract_key_species(results_df, simulator.state_ids)
-        all_time_courses.append(key_data)
-        for name in KEY_SPECIES.keys():
-            final_values[name].append(key_data[name][-1])
+        try:
+            results_df = run_single_simulation(
+                simulator,
+                parameter_values=noisy_params,
+                stop=simulation_duration_min
+            )
+            key_data = extract_key_species(results_df, simulator.state_ids)
+            all_time_courses.append(key_data)
+            for name in KEY_SPECIES.keys():
+                final_values[name].append(key_data[name][-1])
+        except (RuntimeError, ValueError) as e:
+            failed += 1
+            print(f"  [Warning] Simulation {i+1} failed: {e}")
 
         if (i + 1) % max(1, n_simulations // 5) == 0:
-            print(f"  Completed {i + 1}/{n_simulations} simulations...")
+            print(f"  Completed {i + 1 - failed}/{n_simulations} simulations (failed: {failed})...")
+
+    if failed > 0:
+        print(f"  Total failures: {failed}/{n_simulations}")
 
     return {
         'time_courses': all_time_courses,
@@ -357,7 +374,7 @@ def print_statistics(final_values, analysis_name):
 if __name__ == "__main__":
     # Configuration
     N_SIMULATIONS = 20
-    NOISE_FRACTION = 0.5     # 50% Gaussian noise (larger to see effects)
+    NOISE_FRACTION = 0.1     # 10% Gaussian noise (reduced from 50% for stability)
     DURATION_MIN = 60.0      # 1 hour simulation
     N_PARAMS_TO_TEST = None  # None = test ALL 2715 parameters
     RANDOM_SEED = 42
@@ -366,12 +383,9 @@ if __name__ == "__main__":
     print("SPARCED SENSITIVITY ANALYSIS")
     print("="*60)
     print(f"Simulations per analysis: {N_SIMULATIONS}")
-    print(f"Noise fraction: {NOISE_FRACTION * 100}% (larger noise for visible effects)")
+    print(f"Noise fraction: {NOISE_FRACTION * 100}%")
     print(f"Simulation duration: {DURATION_MIN} minutes")
     print(f"Parameters tested: {'ALL' if N_PARAMS_TO_TEST is None else N_PARAMS_TO_TEST} of 2715 total")
-    print()
-    print("Note: Small parameters (e.g., k1_1=0.0042) require larger noise fractions")
-    print("      to produce visible output variations. Using 50% noise for this test.")
 
     # Initialize simulator
     print("\nInitializing SPARCED simulator...")
@@ -416,7 +430,7 @@ if __name__ == "__main__":
         n_simulations=N_SIMULATIONS,
         noise_fraction=NOISE_FRACTION,
         simulation_duration_min=DURATION_MIN,
-        n_params=N_PARAMS_TO_TEST,
+        n_params=N_PARAMS_TO_TEST, # type: ignore
         seed=RANDOM_SEED
     )
 
@@ -426,7 +440,7 @@ if __name__ == "__main__":
 
     plot_time_courses(
         param_results['time_courses'],
-        f"Parameter Variability ({N_SIMULATIONS} simulations, {NOISE_FRACTION*100}% noise on {N_PARAMS_TO_TEST} params)",
+        f"Parameter Variability ({N_SIMULATIONS} simulations, {NOISE_FRACTION*100}% noise on ALL params)",
         param_tc_path
     )
     plot_final_value_histograms(
