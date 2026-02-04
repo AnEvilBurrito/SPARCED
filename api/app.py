@@ -4,6 +4,7 @@ This module provides a FastAPI server that implements the HTTPSolver API
 contract for running SPARCED simulations via HTTP POST requests.
 """
 
+import asyncio
 import os
 from typing import Dict, Optional
 
@@ -55,6 +56,8 @@ app = FastAPI(
 
 # Global simulator instance (initialized on startup)
 simulator = None
+# Global lock to serialize simulate() calls for thread safety
+simulate_lock = asyncio.Lock()
 
 
 @app.on_event("startup")
@@ -202,44 +205,47 @@ async def simulate(req: SimulationRequest):
     if simulator is None:
         raise HTTPException(status_code=503, detail={"error": "Simulator not initialized"})
 
-    try:
-        # Validate state_values species names
-        if req.state_values:
-            for species_name in req.state_values.keys():
-                if species_name not in simulator.species_name_to_index:
-                    raise HTTPException(
-                        status_code=400,
-                        detail={"error": f"Unknown species: '{species_name}'"}
-                    )
+    # Acquire lock for exclusive access to simulator
+    # This ensures thread safety by serializing all simulation requests
+    async with simulate_lock:
+        try:
+            # Validate state_values species names
+            if req.state_values:
+                for species_name in req.state_values.keys():
+                    if species_name not in simulator.species_name_to_index:
+                        raise HTTPException(
+                            status_code=400,
+                            detail={"error": f"Unknown species: '{species_name}'"}
+                        )
 
-        # Validate parameter_values parameter names against AMICI model
-        if req.parameter_values:
-            for param_name in req.parameter_values.keys():
-                if param_name not in simulator.available_parameters:
-                    available = list(simulator.available_parameters)[:5]
-                    raise HTTPException(
-                        status_code=400,
-                        detail={"error": f"Unknown parameter: '{param_name}'. Available parameters (sample): {available}"}
-                    )
+            # Validate parameter_values parameter names against AMICI model
+            if req.parameter_values:
+                for param_name in req.parameter_values.keys():
+                    if param_name not in simulator.available_parameters:
+                        available = list(simulator.available_parameters)[:5]
+                        raise HTTPException(
+                            status_code=400,
+                            detail={"error": f"Unknown parameter: '{param_name}'. Available parameters (sample): {available}"}
+                        )
 
-        # Run simulation
-        results_df = simulator.simulate(
-            start=req.start,
-            stop=req.stop,
-            step=req.step,
-            state_values=req.state_values,
-            parameter_values=req.parameter_values
-        )
+            # Run simulation
+            results_df = simulator.simulate(
+                start=req.start,
+                stop=req.stop,
+                step=req.step,
+                state_values=req.state_values,
+                parameter_values=req.parameter_values
+            )
 
-        # Return column-oriented JSON
-        return results_df.to_dict(orient="list")
+            # Return column-oriented JSON
+            return results_df.to_dict(orient="list")
 
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail={"error": str(e)})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail={"error": str(e)})
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail={"error": str(e)})
+        except Exception as e:
+            raise HTTPException(status_code=500, detail={"error": str(e)})
 
 
 @app.head("/simulate", tags=["Simulation"])
