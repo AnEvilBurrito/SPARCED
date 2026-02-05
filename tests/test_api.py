@@ -316,5 +316,96 @@ class TestDataFormat:
         assert all(v >= 0 for v in data["Ribosome"])
 
 
+class TestModelInfoEndpoints:
+    """Test the new model info endpoints: outcome_var, modifiable states, modifiable parameters."""
+
+    def test_outcome_var(self, client):
+        """Test /outcome_var endpoint returns 'ppAKT'."""
+        response = client.get("/outcome_var")
+        assert response.status_code == 200
+        data = response.text
+        # FastAPI returns JSON string for plain string responses
+        assert '"ppAKT"' in data or data == "ppAKT"
+
+    def test_modifiable_states_excludes_akt_pathway(self, client):
+        """Test /states/modifiable excludes ppAKT, pAKT, and AKT."""
+        response = client.get("/states/modifiable")
+        assert response.status_code == 200
+        modifiable = response.json()
+
+        # Should be a list
+        assert isinstance(modifiable, list)
+
+        # These should NOT be in modifiable
+        assert "ppAKT" not in modifiable
+        assert "pAKT" not in modifiable
+        assert "AKT" not in modifiable
+
+        # But other species should be present
+        assert "Ribosome" in modifiable
+        assert "p53inac" in modifiable
+
+        # Complexes should be modifiable (not excluded)
+        # Check for some AKT-related complexes
+        assert "ppAKT_BAD" in modifiable or any("ppAKT" in s for s in modifiable)
+
+    def test_modifiable_states_count(self, client):
+        """Test /states/modifiable returns expected number of states."""
+        response = client.get("/states")
+        assert response.status_code == 200
+        all_states = response.json()
+
+        response = client.get("/states/modifiable")
+        assert response.status_code == 200
+        modifiable = response.json()
+
+        # Modifiable excludes: 3 AKT pathway states + 81 non-positive states = 84 total
+        assert len(modifiable) == len(all_states) - 84
+
+    def test_modifiable_parameters_excludes_k1806(self, client):
+        """Test /parameters/modifiable excludes k1806 (ppAKT dephosphorylation)."""
+        response = client.get("/parameters/modifiable")
+        assert response.status_code == 200
+        modifiable = response.json()
+
+        # Should be a list
+        assert isinstance(modifiable, list)
+
+        # k1806 should NOT be in modifiable
+        assert "k1806" not in modifiable
+
+        # But other AKT pathway parameters SHOULD be modifiable
+        assert "k1754" in modifiable  # mTORC2 phosphorylation
+        assert "k1756" in modifiable  # release from PIP3
+        assert "k1750" in modifiable  # PDK1 phosphorylation
+
+        # Translation rates should be modifiable
+        assert "k105_1" in modifiable  # AKT1 translation
+        assert "k106_1" in modifiable  # AKT2 translation
+        assert "k104_1" in modifiable  # PTEN translation
+
+    def test_modifiable_parameters_count(self, client):
+        """Test /parameters/modifiable returns expected number of parameters."""
+        response = client.get("/parameters")
+        assert response.status_code == 200
+        all_params = response.json()
+
+        response = client.get("/parameters/modifiable")
+        assert response.status_code == 200
+        modifiable = response.json()
+
+        # Modifiable excludes: 1 (k1806) + 73 non-positive parameters = 74 total
+        assert len(modifiable) == len(all_params) - 74
+
+    def test_modifiable_parameters_sorted(self, client):
+        """Test /parameters/modifiable returns sorted list."""
+        response = client.get("/parameters/modifiable")
+        assert response.status_code == 200
+        modifiable = response.json()
+
+        # Should be sorted alphabetically
+        assert modifiable == sorted(modifiable)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

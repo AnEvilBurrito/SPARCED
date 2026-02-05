@@ -86,6 +86,9 @@ async def root():
             "POST /simulate": "Run a simulation",
             "GET /states": "Get default state values",
             "GET /parameters": "Get default parameter values",
+            "GET /outcome_var": "Get the outcome variable name (ppAKT)",
+            "GET /states/modifiable": "Get list of modifiable state names",
+            "GET /parameters/modifiable": "Get list of modifiable parameter names",
             "GET /health": "Health check",
             "GET /": "API information"
         }
@@ -134,6 +137,57 @@ async def get_states():
 
 
 @app.get(
+    "/outcome_var",
+    tags=["Model Info"],
+    responses={
+        200: {"description": "Returns the outcome variable name"},
+        503: {"model": ErrorResponse, "description": "Simulator not initialized"}
+    }
+)
+async def get_outcome_var():
+    """Get the outcome variable name for this model.
+
+    For SPARCED pan-cancer simulations, the outcome variable is 'ppAKT'
+    (doubly phosphorylated AKT in Cytoplasm). This is the target species
+    used for treatment response prediction.
+
+    Example response:
+    ```json
+    "ppAKT"
+    ```
+    """
+    return "ppAKT"
+
+
+@app.get(
+    "/states/modifiable",
+    tags=["Model Info"],
+    responses={
+        200: {"description": "Returns list of modifiable state names"},
+        503: {"model": ErrorResponse, "description": "Simulator not initialized"}
+    }
+)
+async def get_modifiable_states():
+    """Get list of state names that can be perturbed.
+
+    Excludes the core AKT pathway states to conserve AKT->ppAKT behavior:
+    - ppAKT (outcome variable)
+    - pAKT (direct precursor)
+    - AKT (direct precursor)
+
+    All other states are modifiable, including complexes and activated species.
+
+    Example response:
+    ```json
+    ["Ribosome", "HGF", "PDK1", "PTEN", "ppERK", ...]
+    ```
+    """
+    if simulator is None:
+        raise HTTPException(status_code=503, detail="Simulator not initialized")
+    return simulator.get_modifiable_states()
+
+
+@app.get(
     "/parameters",
     tags=["Model Info"],
     responses={
@@ -159,6 +213,33 @@ async def get_parameters():
     if simulator is None:
         raise HTTPException(status_code=503, detail="Simulator not initialized")
     return simulator.get_parameter_defaults()
+
+
+@app.get(
+    "/parameters/modifiable",
+    tags=["Model Info"],
+    responses={
+        200: {"description": "Returns list of modifiable parameter names"},
+        503: {"model": ErrorResponse, "description": "Simulator not initialized"}
+    }
+)
+async def get_modifiable_parameters():
+    """Get list of parameter names that can be perturbed.
+
+    Excludes only the ppAKT dephosphorylation parameter to conserve decay rate:
+    - k1806 (basal ppAKT dephosphorylation)
+
+    All other parameters are modifiable, including AKT phosphorylation kinetics
+    (k1754, k1756, k1750) and translation rates.
+
+    Example response:
+    ```json
+    ["k1_1", "k3_1", "k1754", "k1756", "k105_1", ...]
+    ```
+    """
+    if simulator is None:
+        raise HTTPException(status_code=503, detail="Simulator not initialized")
+    return simulator.get_modifiable_parameters()
 
 
 @app.post(

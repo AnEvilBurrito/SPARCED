@@ -9,7 +9,7 @@ import sys
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -105,30 +105,112 @@ class SPARCEDSimulator:
         Stores the set of available fixed parameter names for validation.
         Users must use AMICI's parameter names (e.g., k1_1, k3_1, etc.)
         as found in ParamsAll.txt or via model.getFixedParameterNames().
+
+        Also caches the ORIGINAL parameter defaults from the model before
+        any simulations modify them (getFixedParameterByName() is stateful).
         """
         self.available_parameters = set(self.model.getFixedParameterNames())
+        # Cache original parameter defaults at initialization time
+        self._cached_parameter_defaults = {
+            name: self.model.getFixedParameterByName(name)
+            for name in self.available_parameters
+        }
 
     def get_state_defaults(self) -> Dict[str, float]:
         """Get default initial values for all states (species).
 
-        Uses AMICI's native getStateIds() and getInitialStates() methods.
+        Reads from Species.txt file to get true defaults, not the current
+        AMICI model state (which changes after simulations).
+
+        Applies DEFAULT_LIGANDS override to ligand species to match the
+        behavior of simulate() (positions 155-161 are overridden).
 
         Returns:
             Dictionary mapping state name to default initial concentration (nM)
         """
-        initial_states = self.model.getInitialStates()
-        return dict(zip(self.state_ids, initial_states))
+        species_df = pd.read_csv(
+            self.species_file,
+            sep="\t",
+            header=0,
+            index_col=0,
+            encoding='latin-1'
+        )
+        # Species.txt column 2 (index 2) is 'IC_Xinitialized' - initial concentration
+        # Pandas index keys are typed as Hashable; coerce to str for a stable API contract.
+        defaults: Dict[str, float] = {
+            str(name): float(row['IC_Xinitialized'])
+            for name, row in species_df.iterrows()
+        }
+
+        # Apply DEFAULT_LIGANDS override to ligand species (matches simulate() behavior)
+        # Ligand species at positions 155-161 in species_initializations array
+        # Ligand names: ['E', 'H', 'HGF', 'P', 'F', 'I', 'INS']
+        ligand_names = ['E', 'H', 'HGF', 'P', 'F', 'I', 'INS']
+        for i, ligand in enumerate(ligand_names):
+            if ligand in defaults:
+                defaults[ligand] = self.DEFAULT_LIGANDS[i]
+
+        return defaults
 
     def get_parameter_defaults(self) -> Dict[str, float]:
         """Get default values for all fixed parameters.
 
-        Uses AMICI's native getFixedParameterNames() and getFixedParameterByName() methods.
+        Returns cached defaults from model initialization time, not the
+        current stateful values (which change after parameter overrides).
 
         Returns:
             Dictionary mapping parameter name (e.g., k1_1, k3_1) to default value
         """
-        param_names = self.model.getFixedParameterNames()
-        return {name: self.model.getFixedParameterByName(name) for name in param_names}
+        return self._cached_parameter_defaults.copy()
+
+    def get_modifiable_states(self) -> List[str]:
+        """Get list of state names that can be perturbed.
+
+        Excludes:
+        - Core AKT pathway states (ppAKT, pAKT, AKT) to conserve AKT->ppAKT behavior
+        - States with non-positive default values (can't be lognormally perturbed)
+
+        All other states are modifiable, including complexes and activated species.
+
+        Returns:
+            List of state names that are safe to modify in perturbation experiments
+        """
+        # Get defaults to check for non-positive values
+        defaults = self.get_state_defaults()
+
+        # Exclude AKT pathway states
+        excluded_states = {'ppAKT', 'pAKT', 'AKT'}
+
+        # Also exclude states with non-positive defaults (can't be sampled / perturbed)
+        non_positive_states = {name for name, val in defaults.items() if val <= 0}
+
+        return [s for s in self.state_ids
+                if s not in excluded_states and s not in non_positive_states]
+
+    def get_modifiable_parameters(self) -> List[str]:
+        """Get list of parameter names that can be perturbed.
+
+        Excludes:
+        - k1806 (basal ppAKT dephosphorylation) to conserve decay rate
+        - Parameters with non-positive default values (can't be sampled / perturbed)
+
+        All other parameters are modifiable, including AKT phosphorylation kinetics
+        (k1754, k1756, k1750) and translation rates.
+
+        Returns:
+            List of parameter names that are safe to modify in perturbation experiments
+        """
+        # Get defaults to check for non-positive values
+        defaults = self.get_parameter_defaults()
+
+        # Exclude k1806 (ppAKT dephosphorylation)
+        excluded_params = {'k1806'}
+
+        # Also exclude parameters with non-positive defaults (can't be sampled / perturbed)
+        non_positive_params = {name for name, val in defaults.items() if val <= 0}
+
+        return sorted([p for p in self.available_parameters
+                       if p not in excluded_params and p not in non_positive_params])
 
     def _apply_overrides(
         self,
