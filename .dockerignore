@@ -9,3 +9,19 @@ kube*
 *nextflow*
 main*
 SPARCED_Brep
+
+.git
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+**/.mypy_cache
+**/.ipynb_checkpoints
+.venv
+.vscode
+.DS_Store
+
+# Nextflow cache
+.work
+.nextflow*

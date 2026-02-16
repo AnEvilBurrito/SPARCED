@@ -1,0 +1,12 @@
+services:
+  sparced-api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      SPARCED_MODEL_DIR: Demo/SPARCED
+      SPARCED_SBML_FILE: SPARCED.xml
+      SPARCED_BASE_DIR: /workspace
+      SPARCED_DETERMINISTIC: "1"
