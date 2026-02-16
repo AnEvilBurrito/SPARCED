@@ -1,0 +1,31 @@
+services:
+  sparced-api:
+    image: sparced-api:latest
+    ports:
+      - "8000:8000"
+    environment:
+      SPARCED_MODEL_DIR: Demo/SPARCED
+      SPARCED_SBML_FILE: SPARCED.xml
+      SPARCED_BASE_DIR: /workspace
+      SPARCED_DETERMINISTIC: "1"
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    stop_grace_period: 30s
