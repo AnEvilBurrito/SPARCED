@@ -8,6 +8,8 @@ services:
       SPARCED_SBML_FILE: SPARCED.xml
       SPARCED_BASE_DIR: /workspace
       SPARCED_DETERMINISTIC: "1"
+      # API Authentication token (passed from host environment or .env file)
+      SPARCED_API_TOKEN: ${SPARCED_API_TOKEN:-}
     deploy:
       replicas: 3
       update_config:
@@ -22,6 +24,10 @@ services:
         delay: 5s
         max_attempts: 3
         window: 120s
+      resources:
+        reservations:
+          cpus: '1'
+          memory: 500M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

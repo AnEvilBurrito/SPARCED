@@ -10,3 +10,5 @@ services:
       SPARCED_SBML_FILE: SPARCED.xml
       SPARCED_BASE_DIR: /workspace
       SPARCED_DETERMINISTIC: "1"
+      # API Authentication token (passed from host environment or .env file)
+      SPARCED_API_TOKEN: ${SPARCED_API_TOKEN:-}

@@ -6,12 +6,51 @@ contract for running SPARCED simulations via HTTP POST requests.
 
 import asyncio
 import os
+import secrets
 from typing import Dict, Optional
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Response, Security
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
 
 from .run_model import create_simulator
+
+
+# Authentication configuration
+API_TOKEN = os.getenv("SPARCED_API_TOKEN")
+REQUIRE_AUTH = API_TOKEN is not None and API_TOKEN != ""
+
+# Basic Auth security scheme (compatible with HTTPSolver)
+security = HTTPBasic(auto_error=False)
+
+
+async def verify_token(credentials: HTTPBasicCredentials = Security(security)) -> Optional[str]:
+    """Verify Basic Auth authentication.
+
+    Password is the API token. Username is ignored.
+    If SPARCED_API_TOKEN is not set, authentication is disabled.
+    """
+    if not REQUIRE_AUTH:
+        # Authentication not configured - allow all requests
+        return None
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "Missing Authorization header. Use Basic Auth with password as API token."}
+        )
+
+    # Password is the token (username is ignored)
+    token = credentials.password
+
+    # Use constant-time comparison to prevent timing attacks
+    if not secrets.compare_digest(token, API_TOKEN):
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "Invalid API token"}
+        )
+
+    return token
 
 
 # Pydantic models for request/response
@@ -97,13 +136,14 @@ async def root():
 
 @app.get("/health", tags=["Health"])
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint (no authentication required)."""
     if simulator is None:
         raise HTTPException(status_code=503, detail="Simulator not initialized")
     return {
         "status": "healthy",
         "model_dir": str(simulator.model_dir),
-        "deterministic": simulator.deterministic
+        "deterministic": simulator.deterministic,
+        "auth_required": REQUIRE_AUTH
     }
 
 
@@ -112,10 +152,11 @@ async def health():
     tags=["Model Info"],
     responses={
         200: {"description": "Returns default state values"},
+        401: {"model": ErrorResponse, "description": "Invalid or missing API token (Basic Auth)"},
         503: {"model": ErrorResponse, "description": "Simulator not initialized"}
     }
 )
-async def get_states():
+async def get_states(_: str = Depends(verify_token)):
     """Get default initial values for all states (species).
 
     Returns a dictionary mapping state names to their default initial
@@ -141,10 +182,11 @@ async def get_states():
     tags=["Model Info"],
     responses={
         200: {"description": "Returns the outcome variable name"},
+        401: {"model": ErrorResponse, "description": "Invalid or missing API token (Basic Auth)"},
         503: {"model": ErrorResponse, "description": "Simulator not initialized"}
     }
 )
-async def get_outcome_var():
+async def get_outcome_var(_: str = Depends(verify_token)):
     """Get the outcome variable name for this model.
 
     For SPARCED pan-cancer simulations, the outcome variable is 'ppAKT'
@@ -164,10 +206,11 @@ async def get_outcome_var():
     tags=["Model Info"],
     responses={
         200: {"description": "Returns list of modifiable state names"},
+        401: {"model": ErrorResponse, "description": "Invalid or missing API token (Basic Auth)"},
         503: {"model": ErrorResponse, "description": "Simulator not initialized"}
     }
 )
-async def get_modifiable_states():
+async def get_modifiable_states(_: str = Depends(verify_token)):
     """Get list of state names that can be perturbed.
 
     Excludes the core AKT pathway states to conserve AKT->ppAKT behavior:
@@ -192,10 +235,11 @@ async def get_modifiable_states():
     tags=["Model Info"],
     responses={
         200: {"description": "Returns default parameter values"},
+        401: {"model": ErrorResponse, "description": "Invalid or missing API token (Basic Auth)"},
         503: {"model": ErrorResponse, "description": "Simulator not initialized"}
     }
 )
-async def get_parameters():
+async def get_parameters(_: str = Depends(verify_token)):
     """Get default values for all fixed parameters.
 
     Returns a dictionary mapping parameter names to their default values.
@@ -220,10 +264,11 @@ async def get_parameters():
     tags=["Model Info"],
     responses={
         200: {"description": "Returns list of modifiable parameter names"},
+        401: {"model": ErrorResponse, "description": "Invalid or missing API token (Basic Auth)"},
         503: {"model": ErrorResponse, "description": "Simulator not initialized"}
     }
 )
-async def get_modifiable_parameters():
+async def get_modifiable_parameters(_: str = Depends(verify_token)):
     """Get list of parameter names that can be perturbed.
 
     Excludes only the ppAKT dephosphorylation parameter to conserve decay rate:
@@ -248,11 +293,12 @@ async def get_modifiable_parameters():
     responses={
         200: {"description": "Simulation completed successfully"},
         400: {"model": ErrorResponse, "description": "Invalid request parameters"},
+        401: {"model": ErrorResponse, "description": "Invalid or missing API token (Basic Auth)"},
         500: {"model": ErrorResponse, "description": "Simulation error"},
         503: {"model": ErrorResponse, "description": "Simulator not initialized"}
     }
 )
-async def simulate(req: SimulationRequest):
+async def simulate(req: SimulationRequest, _: str = Depends(verify_token)):
     """Run a SPARCED simulation with the provided parameters.
 
     Returns simulation results as column-oriented JSON with time and species

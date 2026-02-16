@@ -17,3 +17,6 @@ docs/*.md
 
 # Generated plots from sensitivity analysis
 examples/*.png
+
+# Ignore .env file containing sensitive information
+.env
