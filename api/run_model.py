@@ -375,6 +375,22 @@ class SPARCEDSimulator:
         result_df = pd.DataFrame(xoutS_all, columns=self.state_ids)
         result_df.insert(0, 'time', time_minutes)
 
+        # Check for NaN values which indicate simulation failure
+        if result_df.isna().any().any():
+            raise ValueError(
+                "Simulation failed - NaN values detected in results. "
+                "This typically indicates numerical instability in the ODE solver. "
+                "Check that parameter and state values are within valid ranges."
+            )
+
+        # Check for infinite values
+        if np.isinf(result_df.values).any():
+            raise ValueError(
+                "Simulation failed - infinite values detected in results. "
+                "This typically indicates numerical overflow. "
+                "Check that parameter and state values are within valid ranges."
+            )
+
         return result_df
 
 
