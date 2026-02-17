@@ -21,18 +21,18 @@ services:
         parallelism: 1
         delay: 10s
       restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
+        condition: any
+        delay: 30s
+        max_attempts: 10
+        window: 600s
       resources:
         reservations:
           cpus: '1'
           memory: 500M
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
+      interval: 120s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 40s
     stop_grace_period: 30s
